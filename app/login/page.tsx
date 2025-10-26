@@ -1,73 +1,101 @@
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { supabase } from '../../src/lib/supabase' // change to '../src/lib/supabase' if needed
+import Image from 'next/image';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 
 export default function LoginPage() {
-  const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const router = useRouter();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // ✅ Redirect if already signed in OR when sign-in completes
+  // If already authenticated, go to dashboard
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace('/')
-    })
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) router.replace('/')
-    })
-    return () => sub.subscription.unsubscribe()
-  }, [router])
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session) router.replace('/');
+    })();
+  }, [router]);
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    setLoading(false)
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setSubmitting(false);
     if (error) {
-      setError(`Supabase says: ${error.message}`)
-      return
+      setError(error.message || 'Login failed');
+      return;
     }
-    // ✅ Simple, reliable redirect (don’t wait for anything else)
-    window.location.assign('/')
+    router.replace('/');
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50">
-      <div className="bg-white shadow-lg rounded-xl p-8 max-w-md w-full">
-        <div className="flex flex-col items-center mb-6">
-          <img src="/logo.png" alt="Insource Mortgage" className="h-12 w-auto mb-4" />
-          <h1 className="text-2xl font-bold text-gray-800">Insource Mortgage Portal</h1>
-          <p className="text-gray-500 text-sm mb-4">Sign in to continue</p>
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-sm">
+        {/* Logo — fixed size so it always renders */}
+        <div className="flex justify-center mb-6">
+          <Image
+            src="/insource-logo.png"
+            alt="Insource"
+            width={220}     // adjust if you want larger/smaller
+            height={60}
+            className="object-contain"
+            priority
+          />
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm mb-1">Email</label>
-            <input type="email" className="w-full border rounded-lg px-3 py-2"
-                   value={email} onChange={e => setEmail(e.target.value)} required autoComplete="username" />
+        <h1 className="text-lg font-semibold text-center mb-2">Insource Mortgage Dashboard</h1>
+        <p className="text-sm text-gray-600 text-center mb-6">Please sign in</p>
+
+        {error && (
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+            {error}
           </div>
+        )}
 
-          <div>
-            <label className="block text-sm mb-1">Password</label>
-            <input type="password" className="w-full border rounded-lg px-3 py-2"
-                   value={password} onChange={e => setPassword(e.target.value)} required autoComplete="current-password" />
-          </div>
+        <form onSubmit={onSubmit} className="space-y-3">
+          <label className="block text-sm">
+            <span className="text-gray-700">Email</span>
+            <input
+              type="email"
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="username"
+            />
+          </label>
 
-          {error && <div className="text-red-600 text-sm">{error}</div>}
+          <label className="block text-sm">
+            <span className="text-gray-700">Password</span>
+            <input
+              type="password"
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+            />
+          </label>
 
-          <button type="submit" disabled={loading}
-                  className="w-full rounded-lg px-4 py-2 font-semibold text-white"
-                  style={{ background: '#0a66c2', opacity: loading ? 0.7 : 1 }}>
-            {loading ? 'Signing in…' : 'Sign in'}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+          >
+            {submitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+
+        <div className="mt-6 text-center text-[11px] text-gray-500">
+          Need help? Contact the admin.
+        </div>
       </div>
     </div>
-  )
+  );
 }
 
