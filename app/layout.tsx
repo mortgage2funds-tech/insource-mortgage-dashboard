@@ -3,7 +3,7 @@ import './globals.css'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Mortgage Ops — Pro Dashboard v2',
+  title: 'Insource Mortgage Dashboard',
   description: 'Mobile-friendly CRM for mortgage pipeline (Residential & Commercial)'
 }
 
