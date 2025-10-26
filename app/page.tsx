@@ -57,7 +57,7 @@ const PIPELINE_STAGES = [
   'Completed',
 ];
 
-// Brand colors (change here if you want a different blue)
+// Brand colors
 const BRAND = '#0A5BD7';
 const BRAND_HOVER = '#094fc0';
 
@@ -500,13 +500,6 @@ export default function Page() {
               </button>
             </div>
 
-            <a
-              href="/calendar"
-              className="rounded-md border px-3 py-2 text-sm bg-white hover:bg-gray-50"
-            >
-              Calendar
-            </a>
-
             <button
               onClick={onAddClient}
               className="rounded-md border px-3 py-2 text-sm text-white"
@@ -619,7 +612,7 @@ export default function Page() {
                 </button>
               ))}
               <button
-                onClick={openTaskForm}
+                onClick={() => setShowTaskForm(true)}
                 className="rounded-md border px-3 py-1.5 text-sm text-white"
                 style={{ backgroundColor: BRAND }}
                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = BRAND_HOVER)}
@@ -888,7 +881,7 @@ export default function Page() {
       {/* New Task Modal */}
       {showTaskForm && (
         <NewTaskModal
-          onClose={closeTaskForm}
+          onClose={() => setShowTaskForm(false)}
           onCreate={createTask}
           clients={clients}
         />
