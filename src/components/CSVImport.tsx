@@ -1,70 +1,90 @@
+'use client';
 
-'use client'
-import React, { useRef, useState } from 'react'
-import Papa from 'papaparse'
-import { supabase } from '../lib/supabase'
-import { Upload } from 'lucide-react'
+import React, { useRef, useState } from 'react';
+import Papa from 'papaparse';
+import { createClient } from '../lib/supabase';
 
-type Row = Record<string, string>
+type Row = Record<string, string>;
 
-export default function CSVImport({ onDone }:{ onDone?:()=>void }) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+export default function CSVImport() {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [parsing, setParsing] = useState(false);
+  const [message, setMessage] = useState<string>('');
 
-  const handleFile = async (file: File) => {
-    setBusy(true); setMsg(null)
-    try {
-      const parsed = await new Promise<Row[]>((resolve, reject) => {
-        Papa.parse<Row>(file, { header: true, skipEmptyLines: true,
-          complete: (res)=> resolve(res.data), error: reject })
-      })
-      const payload = parsed.map(r => ({
-        name: r['Client Name'] || '',
-        email: r['Email'] || '',
-        phone: r['Phone'] || '',
-        lender: r['Lender'] || '',
-        file_type: r['File Type'] || 'Residential',
-        stage: r['Stage'] || 'Lead',
-        next_follow_up: r['Next Follow-Up Date'] || null,
-        assigned_to: r['Assigned To'] || 'Assistant',
-        last_contact: r['Last Contact Date'] || null,
-        notes: r['Notes'] || '',
-        banker_name: r['Banker Name'] || '',
-        banker_email: r['Banker Email'] || '',
-        bank: r['Bank'] || '',
-      })).filter(r => r.name)
+  // Ready if we ever need it (not used unless you wire an insert)
+  const supabase = createClient();
 
-      if (payload.length === 0) {
-        setMsg('No valid rows found. Check headers and try again.')
-      } else {
-        const { error } = await supabase.from('clients').insert(payload)
-        if (error) throw error
-        setMsg(`Imported ${payload.length} clients successfully.`)
-        onDone && onDone()
+  function handlePick() {
+    fileRef.current?.click();
+  }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setParsing(true);
+    setMessage('');
+    Papa.parse<Row>(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (res) => {
+        const data = (res.data || []).filter(Boolean);
+        const hdrs = res.meta.fields || [];
+        setRows(data);
+        setHeaders(hdrs);
+        setParsing(false);
+        setMessage(`Parsed ${data.length} rows (${hdrs.length} columns).`);
+      },
+      error: (err) => {
+        setParsing(false);
+        setMessage(`Parse error: ${err.message}`);
       }
-    } catch (e:any) {
-      setMsg(e.message || String(e))
-    } finally {
-      setBusy(false)
-      if (inputRef.current) inputRef.current.value = ''
-    }
+    });
   }
 
   return (
-    <div className="card p-4">
-      <div className="flex items-center justify-between mb-2">
-        <div className="font-semibold">Import from Excel (CSV)</div>
-        <button className="btn" onClick={() => inputRef.current?.click()} disabled={busy}>
-          <Upload className="h-4 w-4 mr-2" />{busy ? 'Importing…' : 'Choose CSV'}
-        </button>
-        <input ref={inputRef} type="file" accept=".csv,text/csv" className="hidden"
-          onChange={(e)=>{ const f=e.target.files?.[0]; if (f) handleFile(f) }} />
+    <div className="rounded-xl border bg-white p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="font-semibold">CSV Import</div>
+        <div className="text-xs text-gray-600">Preview only (DB insert disabled in this build)</div>
       </div>
-      <p className="text-sm text-gray-600">
-        Headers must match: Client Name, Email, Phone, Lender, <b>File Type</b>, Stage, Next Follow-Up Date, Assigned To, Last Contact Date, Notes, Banker Name, Banker Email, Bank
-      </p>
-      {msg && <div className="mt-2 text-sm rounded-xl border p-2 bg-gray-50">{msg}</div>}
+
+      <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile} />
+
+      <div className="flex items-center gap-2">
+        <button onClick={handlePick} className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
+          Choose CSV…
+        </button>
+        {parsing && <span className="text-sm text-gray-600">Parsing…</span>}
+        {message && <span className="text-sm text-gray-700">{message}</span>}
+      </div>
+
+      {headers.length > 0 && (
+        <div className="mt-4 overflow-auto rounded-lg border">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                {headers.map((h) => (
+                  <th key={h} className="border-b px-2 py-1 text-xs text-gray-600">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 20).map((r, idx) => (
+                <tr key={idx} className="border-b last:border-0">
+                  {headers.map((h) => (
+                    <td key={h} className="px-2 py-1">{r[h] ?? ''}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rows.length > 20 && (
+            <div className="p-2 text-xs text-gray-600">Showing first 20 of {rows.length} rows.</div>
+          )}
+        </div>
+      )}
     </div>
-  )
+  );
 }

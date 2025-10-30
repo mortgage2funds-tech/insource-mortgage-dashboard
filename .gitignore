@@ -28,3 +28,7 @@ yarn-error.log*
 _backups/
 *.backup.*
 *.bak.*
+
+# backups (do not build)
+*.backup.*
+*.bak.*
