@@ -1,59 +1,72 @@
 'use client';
 
+import Image from 'next/image';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase';
 
 export default function LoginPage() {
   const supabase = createClient();
   const [email, setEmail] = useState('');
-  const [pw, setPw] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  async function login(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    setMsg(null);
-    setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password: pw });
-    setBusy(false);
-    if (error) { setMsg(error.message); return; }
-    window.location.href = '/';
-  }
-
-  async function sendReset() {
-    if (!email) { setMsg('Enter your email first, then click “Forgot password?”'); return; }
-    setMsg(null);
-    setBusy(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    setBusy(false);
-    if (error) { setMsg(error.message); return; }
-    setMsg('Password reset link sent. Check your email.');
+    setError('');
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
+    if (error) setError(error.message);
+    else window.location.href = '/';
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-sm items-center justify-center p-6">
-      <form onSubmit={login} className="w-full space-y-3 rounded-2xl border bg-white p-5 shadow-sm">
-        <h1 className="text-lg font-semibold">Login</h1>
-        {msg && <div className="rounded-md border border-blue-200 bg-blue-50 p-2 text-sm">{msg}</div>}
-        <div>
-          <div className="text-xs text-gray-500">Email</div>
-          <input className="w-full rounded-md border px-3 py-2" value={email} onChange={(e)=>setEmail(e.target.value)} />
+    <main className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
+      <div className="w-full max-w-sm rounded-2xl border bg-white p-6 shadow-md">
+        <div className="mb-6 flex flex-col items-center">
+          <Image
+            src="/insource-logo.png"
+            alt="Insource Mortgage Logo"
+            width={160}
+            height={160}
+            className="mb-2 h-20 w-auto object-contain"
+            priority
+          />
+          <h1 className="text-lg font-semibold text-gray-800">Insource Mortgage Dashboard</h1>
         </div>
-        <div>
-          <div className="text-xs text-gray-500">Password</div>
-          <input type="password" className="w-full rounded-md border px-3 py-2" value={pw} onChange={(e)=>setPw(e.target.value)} />
-        </div>
-        <div className="flex items-center justify-between">
-          <button type="submit" disabled={busy} className="rounded-md bg-blue-600 px-3 py-2 text-white disabled:opacity-50">
-            {busy ? 'Working…' : 'Login'}
+
+        <form onSubmit={handleLogin} className="space-y-3">
+          <div>
+            <label className="text-sm font-medium text-gray-700">Email</label>
+            <input
+              type="email"
+              required
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700">Password</label>
+            <input
+              type="password"
+              required
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          {error && <div className="text-sm text-red-600">{error}</div>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="mt-2 w-full rounded-md bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? 'Logging in…' : 'Login'}
           </button>
-          <button type="button" onClick={sendReset} className="text-sm text-blue-700 hover:underline">
-            Forgot password?
-          </button>
-        </div>
-      </form>
+        </form>
+      </div>
     </main>
   );
 }

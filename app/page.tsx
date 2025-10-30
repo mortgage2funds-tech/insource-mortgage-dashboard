@@ -62,7 +62,7 @@ export default function Page() {
 
   async function loadClients() {
     if (view === 'archived') {
-      const { data } = await supabase.from('clients').select('*').is('is_archived', true).order('created_at', { ascending: false });
+      const { data } = await supabase.from('clients').select('*').eq('is_archived', true).order('created_at', { ascending: false });
       setClients((data ?? []) as any[]);
     } else {
       const { data } = await supabase.from('clients').select('*').or('is_archived.is.false,is_archived.is.null').order('created_at', { ascending: false });
@@ -80,8 +80,8 @@ export default function Page() {
   }, [isAuthed, view]);
 
   // KPIs
-  const activeClients = useMemo(() => clients.filter((c) => c.stage !== 'Completed' && c.stage !== 'Declined').length, [clients]);
-  const sentToBanker = useMemo(() => clients.filter((c) => c.stage === 'Sent to Banker').length, [clients]);
+  const activeClients = useMemo(() => clients.filter((c) => c.stage !== 'Completed' && c.stage !== 'Declined' && !c.is_archived).length, [clients]);
+  const sentToBanker = useMemo(() => clients.filter((c) => c.stage === 'Sent to Banker' && !c.is_archived).length, [clients]);
   const tasksOverdue = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return tasks.filter((t) => t.status === 'open' && t.due_date && t.due_date < today).length;
@@ -141,98 +141,48 @@ export default function Page() {
     }
   }
 
-  // CSV helpers
-  function toCSV(rows: any[], columns: { key: string; label?: string; transform?: (v: any, row?: any) => any }[]) {
-    const header = columns.map(c => `"${(c.label ?? c.key).replace(/"/g,'""')}"`).join(',');
-    const lines = rows.map(r => columns.map(c => {
-      const raw = c.transform ? c.transform(r[c.key], r) : r[c.key];
-      const val = (raw ?? '').toString();
-      return `"${val.replace(/"/g,'""')}"`;
-    }).join(','));
-    return [header, ...lines].join('\n');
+  // DnD helpers
+  const dragClientIdRef = useRef<string | null>(null);
+  function onDragStart(e: React.DragEvent, clientId: string) {
+    dragClientIdRef.current = clientId;
+    e.dataTransfer.setData('text/plain', clientId);
+    e.dataTransfer.effectAllowed = 'move';
   }
-  function downloadCSV(filename: string, csv: string) {
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click();
-    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+  function canMove(from: string, to: string) {
+    if (role === 'admin') return true;
+    // assistants cannot move between Structuring <-> Ready to Send to Banker
+    const a = from.trim(), b = to.trim();
+    if ((a === 'Structuring Phase' && b === 'Ready to Send to Banker') ||
+        (a === 'Ready to Send to Banker' && b === 'Structuring Phase')) {
+      return false;
+    }
+    return true;
   }
+  async function onDropTo(stage: string) {
+    const id = dragClientIdRef.current;
+    if (!id) return;
+    const row = clients.find(c => c.id === id);
+    if (!row) return;
+    if (row.stage === stage) return;
+    if (!canMove(row.stage, stage)) { alert('Assistants cannot move between Structuring ↔ Ready to Send to Banker.'); return; }
 
-  async function exportClientsCSV() {
-    const cols = [
-      { key: 'name', label: 'Name' },
-      { key: 'phone', label: 'Phone' },
-      { key: 'email', label: 'Email' },
-      { key: 'created_email', label: 'Created Email' },
-      { key: 'file_type', label: 'File Type' },
-      { key: 'stage', label: 'Stage' },
-      { key: 'assigned_to', label: 'Assigned To' },
-      { key: 'bank', label: 'Bank' },
-      { key: 'banker_name', label: 'Banker Name' },
-      { key: 'banker_email', label: 'Banker Email' },
-      { key: 'lender', label: 'Lender' },
-      { key: 'next_follow_up', label: 'Next Follow Up' },
-      { key: 'last_contact', label: 'Last Contact' },
-      { key: 'subject_removal_date', label: 'Subject Removal Date' },
-      { key: 'closing_date', label: 'Closing Date' },
-      { key: 'retainer_received', label: 'Retainer Received' },
-      { key: 'retainer_amount', label: 'Retainer Amount' },
-      { key: 'is_archived', label: 'Archived' },
-    ];
-    const csv = toCSV(clients, cols);
-    downloadCSV(`clients_${new Date().toISOString().slice(0,10)}.csv`, csv);
-  }
-
-  async function exportTasksCSV() {
-    const mapName: Record<string, string> = {};
-    for (const c of clients) mapName[c.id] = c.name || '';
-    const rows = tasks.map(t => ({
-      ...t,
-      client_name: t.client_id ? (mapName[t.client_id] ?? t.client_id) : '',
-    }));
-    const cols = [
-      { key: 'title', label: 'Title' },
-      { key: 'assigned_to', label: 'Assigned To' },
-      { key: 'status', label: 'Status' },
-      { key: 'due_date', label: 'Due Date' },
-      { key: 'client_name', label: 'Client' },
-      { key: 'client_id', label: 'Client ID' },
-      { key: 'notes', label: 'Notes' },
-      { key: 'id', label: 'Task ID' },
-    ];
-    const csv = toCSV(rows, cols);
-    downloadCSV(`tasks_${new Date().toISOString().slice(0,10)}.csv`, csv);
-  }
-
-  async function exportStageHistoryCSV() {
-    const { data } = await supabase
-      .from('client_stage_history')
-      .select('client_id, from_stage, to_stage, changed_at')
-      .order('changed_at', { ascending: false })
-      .limit(1000);
-    const mapName: Record<string, string> = {};
-    for (const c of clients) mapName[c.id] = c.name || '';
-    const rows = (data ?? []).map((r: any) => ({
-      ...r,
-      client: mapName[r.client_id] ? mapName[r.client_id] : r.client_id,
-      changed_at_local: new Date(r.changed_at).toLocaleString(),
-    }));
-    const cols = [
-      { key: 'client', label: 'Client' },
-      { key: 'from_stage', label: 'From' },
-      { key: 'to_stage', label: 'To' },
-      { key: 'changed_at_local', label: 'Changed At' },
-      { key: 'client_id', label: 'Client ID' },
-    ];
-    const csv = toCSV(rows, cols);
-    downloadCSV(`stage_history_${new Date().toISOString().slice(0,10)}.csv`, csv);
+    // Update client.stage
+    const { error } = await supabase.from('clients').update({ stage }).eq('id', id);
+    if (!error) {
+      // Stage history row
+      await supabase.from('client_stage_history').insert({
+        client_id: id,
+        from_stage: row.stage,
+        to_stage: stage,
+        changed_at: new Date().toISOString(),
+      });
+      await loadClients();
+    }
   }
 
   return (
     <main className="mx-auto max-w-7xl space-y-4 p-4">
-      {/* Daily Overdue Banner (very top) */}
+      {/* Daily Overdue Banner */}
       {showOverdueBanner && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm flex items-center justify-between">
           <div>
@@ -248,7 +198,6 @@ export default function Page() {
       {/* Top bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {/* Bigger, crisp logo */}
           <Image
             src="/insource-logo.png"
             alt="Insource Mortgage"
@@ -267,18 +216,6 @@ export default function Page() {
           >
             + Add Client
           </button>
-
-          {/* Export menu */}
-          <details className="relative">
-            <summary className="cursor-pointer select-none rounded-md border px-3 py-2 hover:bg-gray-50">
-              Export CSV ▾
-            </summary>
-            <div className="absolute right-0 z-10 mt-2 w-56 rounded-xl border bg-white p-2 shadow-lg">
-              <button onClick={exportClientsCSV} className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-50">Clients CSV</button>
-              <button onClick={exportTasksCSV} className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-50">Tasks CSV</button>
-              <button onClick={exportStageHistoryCSV} className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-50">Stage History CSV</button>
-            </div>
-          </details>
 
           <a href="/analytics" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
             Analytics
@@ -344,7 +281,7 @@ export default function Page() {
       {/* Stage Summary row */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
         {PIPELINE_STAGES.map((s) => {
-          const n = clients.filter((c) => c.stage === s).length;
+          const n = clients.filter((c) => c.stage === s && !c.is_archived).length;
           return (
             <div key={s} className="flex items-center justify-between rounded-xl border bg-white px-3 py-2">
               <div className="text-sm">{s}</div>
@@ -364,7 +301,7 @@ export default function Page() {
       {/* Views */}
       {view === 'list' && (
         <div className="space-y-2 rounded-2xl border bg-white p-3">
-          {clients.map((c) => (
+          {clients.filter(c=>!c.is_archived).map((c) => (
             <div key={c.id} className="rounded-xl border p-3 hover:bg-gray-50">
               <div className="mb-1 flex items-center justify-between">
                 <div>
@@ -383,7 +320,7 @@ export default function Page() {
               </div>
             </div>
           ))}
-          {clients.length === 0 && (
+          {clients.filter(c=>!c.is_archived).length === 0 && (
             <div className="rounded-xl border bg-white p-6 text-center text-sm text-gray-600">No active clients</div>
           )}
         </div>
@@ -392,18 +329,28 @@ export default function Page() {
       {view === 'board' && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
           {PIPELINE_STAGES.map((stage) => (
-            <div key={stage} className="rounded-2xl border bg-white p-3">
+            <div
+              key={stage}
+              className="rounded-2xl border bg-white p-3"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={async (e) => {
+                e.preventDefault();
+                await onDropTo(stage);
+              }}
+            >
               <div className="mb-2 flex items-center justify-between">
                 <div className="font-semibold">{stage}</div>
                 <div className="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white">
-                  {clients.filter((c) => c.stage === stage).length}
+                  {clients.filter((c) => c.stage === stage && !c.is_archived).length}
                 </div>
               </div>
               <div className="space-y-2">
-                {clients.filter((c) => c.stage === stage).map((c) => (
+                {clients.filter((c) => c.stage === stage && !c.is_archived).map((c) => (
                   <div
                     key={c.id}
                     className="rounded-xl border p-3 hover:bg-gray-50"
+                    draggable
+                    onDragStart={(e) => onDragStart(e, c.id)}
                     onDoubleClick={() => setSelectedClient(c)}
                   >
                     <div className="mb-1 flex items-center justify-between">
@@ -426,7 +373,7 @@ export default function Page() {
 
       {view === 'archived' && (
         <div className="space-y-2 rounded-2xl border bg-white p-3">
-          {clients.map((c) => (
+          {clients.filter(c=>c.is_archived).map((c) => (
             <div key={c.id} className="rounded-xl border p-3 hover:bg-gray-50">
               <div className="mb-1 flex items-center justify-between">
                 <div>
@@ -445,7 +392,7 @@ export default function Page() {
               </div>
             </div>
           ))}
-          {clients.length === 0 && (
+          {clients.filter(c=>c.is_archived).length === 0 && (
             <div className="rounded-xl border bg-white p-6 text-center text-sm text-gray-600">No archived clients</div>
           )}
         </div>
@@ -474,18 +421,18 @@ export default function Page() {
 
       {showCreateTask && (
         <TaskEditorModal
-          allClients={clientOptions}
           onClose={() => setShowCreateTask(false)}
           onSaved={async () => { setShowCreateTask(false); await loadTasks(); }}
+          allClients={clientOptions}
         />
       )}
 
       {openTaskId && (
         <TaskEditorModal
           taskId={openTaskId}
-          allClients={clientOptions}
           onClose={() => setOpenTaskId(null)}
           onSaved={async () => { setOpenTaskId(null); await loadTasks(); }}
+          allClients={clientOptions}
         />
       )}
     </main>
@@ -494,7 +441,7 @@ export default function Page() {
 
 function KPI({ title, value }: { title: string; value: number | string }) {
   return (
-    <div className="rounded-2xl border bg-white p-4 kpi-card">
+    <div className="rounded-2xl border bg-white p-4">
       <div className="text-xs text-gray-600">{title}</div>
       <div className="text-2xl font-semibold">{value}</div>
     </div>
@@ -502,13 +449,19 @@ function KPI({ title, value }: { title: string; value: number | string }) {
 }
 function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick?: () => void; }) {
   return (
-    <button type="button" onClick={onClick} aria-current={active ? "page" : undefined} className={`rounded-md border px-3 py-2 text-sm ${active ? 'bg-[--brand] text-white font-medium transition-all' : 'bg-white hover:bg-gray-50'}`} style={{ ['--brand' as any]: BRAND }}>
+    <button
+      type="button"
+      aria-current={active ? 'page' : undefined}
+      onClick={onClick}
+      className={`rounded-md border px-3 py-2 text-sm ${active ? 'bg-[--brand] text-white' : 'bg-white hover:bg-gray-50'}`}
+      style={{ ['--brand' as any]: BRAND }}
+    >
       {children}
     </button>
   );
 }
 
-/* ------- Task Editor Modal (Create + Edit + Notes timeline + Client link) ------- */
+/* ------- Inline Task Editor (same as before) ------- */
 function TaskEditorModal({
   taskId,
   onClose,
@@ -526,7 +479,6 @@ function TaskEditorModal({
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
 
-  // Notes timeline for tasks
   const [tNotes, setTNotes] = useState<any[]>([]);
   const [newTNote, setNewTNote] = useState('');
   const [loadingNotes, setLoadingNotes] = useState(!!isEdit);
@@ -538,7 +490,6 @@ function TaskEditorModal({
     setTask({ ...(data || {}), client_id: data?.client_id ?? '' });
     setLoading(false);
   }
-
   async function loadTaskNotes() {
     if (!isEdit) { setTNotes([]); return; }
     setLoadingNotes(true);
@@ -548,7 +499,6 @@ function TaskEditorModal({
       .eq('task_id', taskId)
       .order('created_at', { ascending: false });
     const base = data ?? [];
-
     const ids = Array.from(new Set(base.map((n:any)=>n.created_by).filter(Boolean))) as string[];
     let names: Record<string,string> = {};
     if (ids.length) {
@@ -558,7 +508,6 @@ function TaskEditorModal({
     setTNotes(base.map((n:any)=>({ ...n, author_name: n.created_by ? (names[n.created_by] ?? 'User') : 'User' })));
     setLoadingNotes(false);
   }
-
   useEffect(() => { loadTask(); }, [taskId]); // eslint-disable-line
   useEffect(() => { loadTaskNotes(); }, [taskId]); // eslint-disable-line
 
@@ -581,7 +530,6 @@ function TaskEditorModal({
     }
     setSaving(false);
   }
-
   async function addTaskNote() {
     if (!newTNote.trim() || !taskId) return;
     const { data: auth } = await supabase.auth.getUser();
@@ -664,7 +612,7 @@ function TaskEditorModal({
                 value={newTNote}
                 onChange={(e) => setNewTNote(e.target.value)}
                 className="h-20 w-full rounded-md border p-2"
-                placeholder="Type a note… (timestamp & author will be added automatically)"
+                placeholder="Type a note… (timestamp & author auto-added)"
               />
               <div className="mt-2 text-right">
                 <button onClick={addTaskNote} className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white">
