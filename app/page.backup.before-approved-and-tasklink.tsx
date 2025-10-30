@@ -1,0 +1,433 @@
+'use client';
+
+import Image from 'next/image';
+import { useEffect, useMemo, useState } from 'react';
+import { createClient } from '@/lib/supabase';
+import ClientActionsMenu from '@/components/ClientActionsMenu';
+import ClientModal from '@/components/ClientModal';
+import { ClientForm } from '@/components/ClientForm';
+
+type ClientRow = any;
+type TaskRow = any;
+type ViewMode = 'list' | 'board' | 'archived';
+type TaskFilter = 'Open' | 'Overdue' | 'Today' | 'Upcoming' | 'Completed' | 'All';
+
+const PIPELINE_STAGES = [
+  'Lead','Checklist Sent','Docs Received','Structuring Phase','Ready to Send to Banker',
+  'Sent to Banker','More Info','Appended','Declined','Completed',
+];
+
+const BRAND = '#0A5BD7';
+
+export default function Page() {
+  const supabase = createClient();
+
+  const [isAuthed, setIsAuthed] = useState(false);
+  const [role, setRole] = useState<'admin' | 'assistant'>('assistant');
+
+  const [view, setView] = useState<ViewMode>('list');
+
+  const [clients, setClients] = useState<ClientRow[]>([]);
+  const [tasks, setTasks] = useState<TaskRow[]>([]);
+  const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+
+  const [showCreateClient, setShowCreateClient] = useState(false);
+  const [showCreateTask, setShowCreateTask] = useState(false);
+
+  const [taskFilter, setTaskFilter] = useState<TaskFilter>('Open');
+  const [nowTick, setNowTick] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setNowTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      const s = data?.session;
+      if (!s) { setIsAuthed(false); window.location.href = '/login'; return; }
+      setIsAuthed(true);
+      const { data: prof } = await supabase.from('profiles').select('role').eq('id', s.user.id).maybeSingle();
+      setRole(prof?.role === 'admin' ? 'admin' : 'assistant');
+    })();
+  }, [supabase]);
+
+  async function loadClients() {
+    // Treat NULL as "active" (not archived) so older rows still show in List/Board
+    if (view === 'archived') {
+      const { data } = await supabase.from('clients')
+        .select('*')
+        .is('is_archived', true)
+        .order('created_at', { ascending: false });
+      setClients((data ?? []) as any[]);
+    } else {
+      const { data } = await supabase.from('clients')
+        .select('*')
+        .or('is_archived.is.false,is_archived.is.null') // active
+        .order('created_at', { ascending: false });
+      setClients((data ?? []) as any[]);
+    }
+  }
+
+  async function loadTasks() {
+    const { data } = await supabase.from('tasks').select('*').order('due_date', { ascending: true });
+    setTasks((data ?? []) as any[]);
+  }
+
+  useEffect(() => {
+    if (!isAuthed) return;
+    (async () => { await Promise.all([loadClients(), loadTasks()]); })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthed, view]);
+
+  // KPIs
+  const activeClients = useMemo(() => clients.filter((c) => c.stage !== 'Completed' && c.stage !== 'Declined').length, [clients]);
+  const sentToBanker = useMemo(() => clients.filter((c) => c.stage === 'Sent to Banker').length, [clients]);
+  const tasksOverdue = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return tasks.filter((t) => t.status === 'open' && t.due_date && t.due_date < today).length;
+  }, [tasks]);
+  const completedThisMonth = useMemo(() => {
+    const ym = new Date().toISOString().slice(0, 7);
+    return clients.filter((c) => c.stage === 'Completed' && (c.closing_date || '').startsWith(ym)).length;
+  }, [clients]);
+
+  // Task filter
+  const filteredTasks = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    switch (taskFilter) {
+      case 'Open': return tasks.filter((t) => t.status === 'open');
+      case 'Overdue': return tasks.filter((t) => t.status === 'open' && t.due_date && t.due_date < today);
+      case 'Today': return tasks.filter((t) => t.status === 'open' && t.due_date === today);
+      case 'Upcoming': return tasks.filter((t) => t.status === 'open' && t.due_date && t.due_date > today);
+      case 'Completed': return tasks.filter((t) => t.status === 'completed');
+      default: return tasks;
+    }
+  }, [tasks, taskFilter, nowTick]);
+
+  return (
+    <main className="mx-auto max-w-7xl space-y-4 p-4">
+      {/* Top bar */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Image src="/insource-logo.png" alt="Insource" width={36} height={36} />
+          <h1 className="text-xl font-semibold">Insource Mortgage Dashboard</h1>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <button
+            onClick={() => setShowCreateClient(true)}
+            className="rounded-md bg-[--brand] px-3 py-2 text-white"
+            style={{ ['--brand' as any]: BRAND }}
+          >
+            + Add Client
+          </button>
+          <button
+            onClick={async () => { await supabase.auth.signOut(); window.location.href = '/login'; }}
+            className="rounded-md border px-3 py-2 hover:bg-gray-50"
+          >
+            Logout
+          </button>
+        </div>
+      </div>
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <KPI title="Active Clients" value={activeClients} />
+        <KPI title="Sent to Banker" value={sentToBanker} />
+        <KPI title="Tasks Overdue" value={tasksOverdue} />
+        <KPI title="Completed (This Month)" value={completedThisMonth} />
+      </div>
+
+      {/* Stage Summary row (always visible) */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+        {PIPELINE_STAGES.map((s) => {
+          const n = clients.filter((c) => c.stage === s).length;
+          return (
+            <div key={s} className="flex items-center justify-between rounded-xl border bg-white px-3 py-2">
+              <div className="text-sm">{s}</div>
+              <div className="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white">{n}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-2">
+        <TabButton active={view === 'list'} onClick={() => setView('list')}>List</TabButton>
+        <TabButton active={view === 'board'} onClick={() => setView('board')}>Board</TabButton>
+        <TabButton active={view === 'archived'} onClick={() => setView('archived')}>Archived</TabButton>
+      </div>
+
+      {/* Views */}
+      {view === 'list' && (
+        <div className="space-y-2 rounded-2xl border bg-white p-3">
+          {clients.map((c) => (
+            <div key={c.id} className="rounded-xl border p-3 hover:bg-gray-50">
+              <div className="mb-1 flex items-center justify-between">
+                <div>
+                  <div className="font-semibold">{c.name || '(No name)'}</div>
+                  <div className="text-xs text-gray-600">Stage: {c.stage || '—'} • Assigned: {c.assigned_to || '—'}</div>
+                </div>
+                <ClientActionsMenu clientId={c.id} isArchived={false} />
+              </div>
+              <div className="mt-2">
+                <button onClick={() => setSelectedClient(c)} className="rounded-md border px-3 py-1 text-sm hover:bg-gray-50">
+                  Open
+                </button>
+              </div>
+            </div>
+          ))}
+          {clients.length === 0 && (
+            <div className="rounded-xl border bg-white p-6 text-center text-sm text-gray-600">No active clients</div>
+          )}
+        </div>
+      )}
+
+      {view === 'board' && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
+          {PIPELINE_STAGES.map((stage) => (
+            <div key={stage} className="rounded-2xl border bg-white p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="font-semibold">{stage}</div>
+                <div className="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white">
+                  {clients.filter((c) => c.stage === stage).length}
+                </div>
+              </div>
+              <div className="space-y-2">
+                {clients.filter((c) => c.stage === stage).map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-xl border p-3 hover:bg-gray-50"
+                    onDoubleClick={() => setSelectedClient(c)}
+                  >
+                    <div className="mb-1 flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium">{c.name || '(No name)'}</div>
+                        <div className="text-xs text-gray-600">Assigned: {c.assigned_to || '—'}</div>
+                      </div>
+                      <ClientActionsMenu clientId={c.id} isArchived={false} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {view === 'archived' && (
+        <div className="space-y-2 rounded-2xl border bg-white p-3">
+          {clients.map((c) => (
+            <div key={c.id} className="rounded-xl border p-3 hover:bg-gray-50">
+              <div className="mb-1 flex items-center justify-between">
+                <div>
+                  <div className="font-semibold">{c.name || '(No name)'}</div>
+                  <div className="text-xs text-gray-600">Stage: {c.stage || '—'} • Assigned: {c.assigned_to || '—'}</div>
+                </div>
+                <ClientActionsMenu clientId={c.id} isArchived={true} />
+              </div>
+              <div className="mt-2">
+                <button onClick={() => setSelectedClient(c)} className="rounded-md border px-3 py-1 text-sm hover:bg-gray-50">
+                  Open
+                </button>
+              </div>
+            </div>
+          ))}
+          {clients.length === 0 && (
+            <div className="rounded-xl border bg-white p-6 text-center text-sm text-gray-600">No archived clients</div>
+          )}
+        </div>
+      )}
+
+      {/* Tasks Panel */}
+      <div className="space-y-2 rounded-2xl border bg-white p-3">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold">Tasks</div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowCreateTask(true)}
+              className="rounded-md border px-3 py-1 text-sm hover:bg-gray-50"
+            >
+              + New Task
+            </button>
+            <select className="rounded-md border px-2 py-1 text-sm" value={taskFilter} onChange={(e) => setTaskFilter(e.target.value as TaskFilter)}>
+              <option>Open</option><option>Overdue</option><option>Today</option><option>Upcoming</option><option>Completed</option><option>All</option>
+            </select>
+          </div>
+        </div>
+        <div className="divide-y">
+          {filteredTasks.map((t) => (
+            <div key={t.id} className="flex items-center justify-between py-2 text-sm">
+              <div>
+                <div className="font-medium">{t.title}</div>
+                <div className="text-xs text-gray-600">
+                  {t.assigned_to ? `Assigned: ${t.assigned_to}` : 'Unassigned'}
+                  {t.due_date ? ` • Due: ${t.due_date}` : ''}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setOpenTaskId(t.id)} className="rounded-md border px-2 py-1 hover:bg-gray-50">Open</button>
+                {t.status === 'open' ? (
+                  <button onClick={async () => { await supabase.from('tasks').update({ status: 'completed' }).eq('id', t.id); await loadTasks(); }} className="rounded-md border px-2 py-1 hover:bg-gray-50">Mark Completed</button>
+                ) : (
+                  <button onClick={async () => { await supabase.from('tasks').update({ status: 'open' }).eq('id', t.id); await loadTasks(); }} className="rounded-md border px-2 py-1 hover:bg-gray-50">Reopen</button>
+                )}
+              </div>
+            </div>
+          ))}
+          {filteredTasks.length === 0 && <div className="py-6 text-center text-xs text-gray-600">No tasks</div>}
+        </div>
+      </div>
+
+      {/* Modals */}
+      {selectedClient && (
+        <ClientModal
+          client={selectedClient}
+          onClose={() => setSelectedClient(null)}
+          onSaved={async () => { setSelectedClient(null); await loadClients(); }}
+        />
+      )}
+
+      {showCreateClient && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-semibold">Add Client</h3>
+              <button onClick={() => setShowCreateClient(false)} className="rounded-md border px-2 py-1 text-sm hover:bg-gray-50">Close</button>
+            </div>
+            <ClientForm client={null} onClose={async (saved) => { setShowCreateClient(false); if (saved) await loadClients(); }} />
+          </div>
+        </div>
+      )}
+
+      {showCreateTask && (
+        <TaskEditorModal
+          onClose={() => setShowCreateTask(false)}
+          onSaved={async () => { setShowCreateTask(false); await loadTasks(); }}
+        />
+      )}
+
+      {openTaskId && (
+        <TaskEditorModal
+          taskId={openTaskId}
+          onClose={() => setOpenTaskId(null)}
+          onSaved={async () => { setOpenTaskId(null); await loadTasks(); }}
+        />
+      )}
+    </main>
+  );
+}
+
+function KPI({ title, value }: { title: string; value: number | string }) {
+  return (
+    <div className="rounded-2xl border bg-white p-4">
+      <div className="text-xs text-gray-600">{title}</div>
+      <div className="text-2xl font-semibold">{value}</div>
+    </div>
+  );
+}
+function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick?: () => void; }) {
+  return (
+    <button onClick={onClick} className={`rounded-md border px-3 py-2 text-sm ${active ? 'bg-[--brand] text-white' : 'bg-white hover:bg-gray-50'}`} style={{ ['--brand' as any]: BRAND }}>
+      {children}
+    </button>
+  );
+}
+
+/* ------- Task Editor Modal (Create + Edit + Notes editing) ------- */
+function TaskEditorModal({ taskId, onClose, onSaved }: { taskId?: string; onClose: () => void; onSaved: () => void; }) {
+  const supabase = createClient() as any;
+  const isEdit = !!taskId;
+  const [task, setTask] = useState<any>({ title: '', assigned_to: 'Champa', due_date: '', status: 'open', notes: '', client_id: null });
+  const [loading, setLoading] = useState(isEdit);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isEdit) return;
+    (async () => {
+      setLoading(true);
+      const { data } = await supabase.from('tasks').select('*').eq('id', taskId).maybeSingle();
+      setTask(data || {});
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId]);
+
+  async function save() {
+    setSaving(true);
+    if (isEdit) {
+      const { error } = await supabase.from('tasks').update({
+        title: task.title, assigned_to: task.assigned_to, due_date: task.due_date, status: task.status, notes: task.notes, client_id: task.client_id ?? null
+      }).eq('id', taskId);
+      if (!error) onSaved();
+    } else {
+      const { error } = await supabase.from('tasks').insert({
+        title: task.title, assigned_to: task.assigned_to, due_date: task.due_date || null, status: 'open', notes: task.notes || null, client_id: task.client_id || null
+      });
+      if (!error) onSaved();
+    }
+    setSaving(false);
+  }
+
+  if (loading) return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
+      <div className="rounded-2xl bg-white p-4">Loading…</div>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[92vh] w-full max-w-xl overflow-auto rounded-2xl bg-white p-4 shadow-xl">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="text-lg font-semibold">{isEdit ? 'Edit Task' : 'New Task'}</div>
+          <button onClick={onClose} className="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50">Close</button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <div className="text-xs text-gray-500">Title</div>
+            <input className="w-full rounded-md border px-3 py-2" value={task.title ?? ''} onChange={(e)=>setTask({ ...task, title: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-xs text-gray-500">Assigned To</div>
+              <select className="w-full rounded-md border px-3 py-2" value={task.assigned_to ?? 'Champa'} onChange={(e)=>setTask({ ...task, assigned_to: e.target.value })}>
+                <option>Rajanpreet</option><option>Champa</option>
+              </select>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500">Due Date (YYYY-MM-DD)</div>
+              <input className="w-full rounded-md border px-3 py-2" value={task.due_date ?? ''} onChange={(e)=>setTask({ ...task, due_date: e.target.value })} />
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500">Client ID (optional)</div>
+            <input className="w-full rounded-md border px-3 py-2" value={task.client_id ?? ''} onChange={(e)=>setTask({ ...task, client_id: e.target.value })} placeholder="Paste a Client ID to link" />
+          </div>
+          <div>
+            <div className="text-xs text-gray-500">Notes</div>
+            <textarea className="h-28 w-full rounded-md border p-2" value={task.notes ?? ''} onChange={(e)=>setTask({ ...task, notes: e.target.value })} />
+          </div>
+
+          {isEdit && (
+            <div>
+              <div className="text-xs text-gray-500">Status</div>
+              <select className="w-full rounded-md border px-3 py-2" value={task.status ?? 'open'} onChange={(e)=>setTask({ ...task, status: e.target.value })}>
+                <option value="open">open</option>
+                <option value="completed">completed</option>
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 text-right">
+          <button onClick={save} disabled={saving} className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+            {saving ? 'Saving…' : (isEdit ? 'Save changes' : 'Create task')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

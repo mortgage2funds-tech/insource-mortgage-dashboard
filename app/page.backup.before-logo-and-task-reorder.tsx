@@ -181,6 +181,7 @@ export default function Page() {
       { key: 'retainer_amount', label: 'Retainer Amount' },
       { key: 'is_archived', label: 'Archived' },
     ];
+    // If archived view, we already loaded archived subset; else active subset. Good enough for export.
     const csv = toCSV(clients, cols);
     downloadCSV(`clients_${new Date().toISOString().slice(0,10)}.csv`, csv);
   }
@@ -232,7 +233,7 @@ export default function Page() {
 
   return (
     <main className="mx-auto max-w-7xl space-y-4 p-4">
-      {/* Daily Overdue Banner (very top) */}
+      {/* Daily Overdue Banner */}
       {showOverdueBanner && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm flex items-center justify-between">
           <div>
@@ -248,15 +249,7 @@ export default function Page() {
       {/* Top bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {/* Bigger, crisp logo */}
-          <Image
-            src="/insource-logo.png"
-            alt="Insource Mortgage"
-            width={140}
-            height={140}
-            className="h-14 w-auto md:h-16 object-contain"
-            priority
-          />
+          <Image src="/insource-logo.png" alt="Insource Mortgage" width={80} height={80} className="object-contain" />
           <h1 className="text-xl font-semibold">Insource Mortgage Dashboard</h1>
         </div>
         <div className="flex items-center gap-2 text-sm">
@@ -268,7 +261,7 @@ export default function Page() {
             + Add Client
           </button>
 
-          {/* Export menu */}
+          {/* Export menu (simple inline) */}
           <details className="relative">
             <summary className="cursor-pointer select-none rounded-md border px-3 py-2 hover:bg-gray-50">
               Export CSV ▾
@@ -294,42 +287,6 @@ export default function Page() {
           >
             Logout
           </button>
-        </div>
-      </div>
-
-      {/* ===== TASKS AT THE TOP ===== */}
-      <div ref={tasksPanelRef} className="space-y-2 rounded-2xl border bg-white p-3">
-        <div className="flex items-center justify-between">
-          <div className="font-semibold">Tasks</div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowCreateTask(true)} className="rounded-md border px-3 py-1 text-sm hover:bg-gray-50">+ New Task</button>
-            <select className="rounded-md border px-2 py-1 text-sm" value={taskFilter} onChange={(e) => setTaskFilter(e.target.value as TaskFilter)}>
-              <option>Open</option><option>Overdue</option><option>Today</option><option>Upcoming</option><option>Completed</option><option>All</option>
-            </select>
-          </div>
-        </div>
-        <div className="divide-y">
-          {filteredTasks.map((t) => (
-            <div key={t.id} className="flex items-center justify-between py-2 text-sm">
-              <div>
-                <div className="font-medium">{t.title}</div>
-                <div className="text-xs text-gray-600">
-                  {t.assigned_to ? `Assigned: ${t.assigned_to}` : 'Unassigned'}
-                  {t.client_id ? ` • Client: ${clientOptions.find(o=>o.id===t.client_id)?.name ?? t.client_id}` : ''}
-                  {t.due_date ? ` • Due: ${t.due_date}` : ''}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setOpenTaskId(t.id)} className="rounded-md border px-2 py-1 hover:bg-gray-50">Open</button>
-                {t.status === 'open' ? (
-                  <button onClick={async () => { await supabase.from('tasks').update({ status: 'completed' }).eq('id', t.id); await loadTasks(); }} className="rounded-md border px-2 py-1 hover:bg-gray-50">Mark Completed</button>
-                ) : (
-                  <button onClick={async () => { await supabase.from('tasks').update({ status: 'open' }).eq('id', t.id); await loadTasks(); }} className="rounded-md border px-2 py-1 hover:bg-gray-50">Reopen</button>
-                )}
-              </div>
-            </div>
-          ))}
-          {filteredTasks.length === 0 && <div className="py-6 text-center text-xs text-gray-600">No tasks</div>}
         </div>
       </div>
 
@@ -451,6 +408,42 @@ export default function Page() {
         </div>
       )}
 
+      {/* Tasks Panel */}
+      <div ref={tasksPanelRef} className="space-y-2 rounded-2xl border bg-white p-3">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold">Tasks</div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowCreateTask(true)} className="rounded-md border px-3 py-1 text-sm hover:bg-gray-50">+ New Task</button>
+            <select className="rounded-md border px-2 py-1 text-sm" value={taskFilter} onChange={(e) => setTaskFilter(e.target.value as TaskFilter)}>
+              <option>Open</option><option>Overdue</option><option>Today</option><option>Upcoming</option><option>Completed</option><option>All</option>
+            </select>
+          </div>
+        </div>
+        <div className="divide-y">
+          {filteredTasks.map((t) => (
+            <div key={t.id} className="flex items-center justify-between py-2 text-sm">
+              <div>
+                <div className="font-medium">{t.title}</div>
+                <div className="text-xs text-gray-600">
+                  {t.assigned_to ? `Assigned: ${t.assigned_to}` : 'Unassigned'}
+                  {t.client_id ? ` • Client: ${clientOptions.find(o=>o.id===t.client_id)?.name ?? t.client_id}` : ''}
+                  {t.due_date ? ` • Due: ${t.due_date}` : ''}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setOpenTaskId(t.id)} className="rounded-md border px-2 py-1 hover:bg-gray-50">Open</button>
+                {t.status === 'open' ? (
+                  <button onClick={async () => { await supabase.from('tasks').update({ status: 'completed' }).eq('id', t.id); await loadTasks(); }} className="rounded-md border px-2 py-1 hover:bg-gray-50">Mark Completed</button>
+                ) : (
+                  <button onClick={async () => { await supabase.from('tasks').update({ status: 'open' }).eq('id', t.id); await loadTasks(); }} className="rounded-md border px-2 py-1 hover:bg-gray-50">Reopen</button>
+                )}
+              </div>
+            </div>
+          ))}
+          {filteredTasks.length === 0 && <div className="py-6 text-center text-xs text-gray-600">No tasks</div>}
+        </div>
+      </div>
+
       {/* Modals */}
       {selectedClient && (
         <ClientModal
@@ -494,7 +487,7 @@ export default function Page() {
 
 function KPI({ title, value }: { title: string; value: number | string }) {
   return (
-    <div className="rounded-2xl border bg-white p-4 kpi-card">
+    <div className="rounded-2xl border bg-white p-4">
       <div className="text-xs text-gray-600">{title}</div>
       <div className="text-2xl font-semibold">{value}</div>
     </div>
@@ -502,7 +495,7 @@ function KPI({ title, value }: { title: string; value: number | string }) {
 }
 function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick?: () => void; }) {
   return (
-    <button type="button" onClick={onClick} aria-current={active ? "page" : undefined} className={`rounded-md border px-3 py-2 text-sm ${active ? 'bg-[--brand] text-white font-medium transition-all' : 'bg-white hover:bg-gray-50'}`} style={{ ['--brand' as any]: BRAND }}>
+    <button onClick={onClick} className={`rounded-md border px-3 py-2 text-sm ${active ? 'bg-[--brand] text-white' : 'bg-white hover:bg-gray-50'}`} style={{ ['--brand' as any]: BRAND }}>
       {children}
     </button>
   );

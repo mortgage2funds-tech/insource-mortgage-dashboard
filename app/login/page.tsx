@@ -1,101 +1,59 @@
 'use client';
 
-import Image from 'next/image';
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { useState } from 'react';
+import { createClient } from '@/lib/supabase';
 
 export default function LoginPage() {
-  const router = useRouter();
+  const supabase = createClient();
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [pw, setPw] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
-  // If already authenticated, go to dashboard
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data?.session) router.replace('/');
-    })();
-  }, [router]);
-
-  async function onSubmit(e: React.FormEvent) {
+  async function login(e: React.FormEvent) {
     e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setSubmitting(false);
-    if (error) {
-      setError(error.message || 'Login failed');
-      return;
-    }
-    router.replace('/');
+    setMsg(null);
+    setBusy(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password: pw });
+    setBusy(false);
+    if (error) { setMsg(error.message); return; }
+    window.location.href = '/';
+  }
+
+  async function sendReset() {
+    if (!email) { setMsg('Enter your email first, then click “Forgot password?”'); return; }
+    setMsg(null);
+    setBusy(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setBusy(false);
+    if (error) { setMsg(error.message); return; }
+    setMsg('Password reset link sent. Check your email.');
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-md rounded-2xl border bg-white p-6 shadow-sm">
-        {/* Logo — fixed size so it always renders */}
-        <div className="flex justify-center mb-6">
-          <Image
-            src="/insource-logo.png"
-            alt="Insource"
-            width={220}     // adjust if you want larger/smaller
-            height={60}
-            className="object-contain"
-            priority
-          />
+    <main className="mx-auto flex min-h-screen max-w-sm items-center justify-center p-6">
+      <form onSubmit={login} className="w-full space-y-3 rounded-2xl border bg-white p-5 shadow-sm">
+        <h1 className="text-lg font-semibold">Login</h1>
+        {msg && <div className="rounded-md border border-blue-200 bg-blue-50 p-2 text-sm">{msg}</div>}
+        <div>
+          <div className="text-xs text-gray-500">Email</div>
+          <input className="w-full rounded-md border px-3 py-2" value={email} onChange={(e)=>setEmail(e.target.value)} />
         </div>
-
-        <h1 className="text-lg font-semibold text-center mb-2">Insource Mortgage Dashboard</h1>
-        <p className="text-sm text-gray-600 text-center mb-6">Please sign in</p>
-
-        {error && (
-          <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={onSubmit} className="space-y-3">
-          <label className="block text-sm">
-            <span className="text-gray-700">Email</span>
-            <input
-              type="email"
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="username"
-            />
-          </label>
-
-          <label className="block text-sm">
-            <span className="text-gray-700">Password</span>
-            <input
-              type="password"
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-            />
-          </label>
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-          >
-            {submitting ? 'Signing in…' : 'Sign in'}
+        <div>
+          <div className="text-xs text-gray-500">Password</div>
+          <input type="password" className="w-full rounded-md border px-3 py-2" value={pw} onChange={(e)=>setPw(e.target.value)} />
+        </div>
+        <div className="flex items-center justify-between">
+          <button type="submit" disabled={busy} className="rounded-md bg-blue-600 px-3 py-2 text-white disabled:opacity-50">
+            {busy ? 'Working…' : 'Login'}
           </button>
-        </form>
-
-        <div className="mt-6 text-center text-[11px] text-gray-500">
-          Need help? Contact the admin.
+          <button type="button" onClick={sendReset} className="text-sm text-blue-700 hover:underline">
+            Forgot password?
+          </button>
         </div>
-      </div>
-    </div>
+      </form>
+    </main>
   );
 }
-

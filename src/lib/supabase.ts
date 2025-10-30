@@ -1,16 +1,20 @@
-import { createClient } from '@supabase/supabase-js'
+'use client';
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+import { createBrowserClient } from '@supabase/ssr';
 
-if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL is missing')
-if (!anon) throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY is missing')
+/**
+ * Factory: call this inside components/hooks to get a browser client.
+ * Usage: const supabase = createClient();
+ */
+export const createClient = () =>
+  createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
-export const supabase = createClient(url, anon, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false, // avoids Next.js dev route handling issues
-  },
-})
-
+/**
+ * Default singleton for legacy code that imports `supabase` directly.
+ * Usage: import supabase from '@/lib/supabase'
+ */
+const supabase = createClient();
+export default supabase;

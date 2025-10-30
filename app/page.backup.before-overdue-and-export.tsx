@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import ClientActionsMenu from '@/components/ClientActionsMenu';
@@ -39,10 +39,6 @@ export default function Page() {
 
   const [taskFilter, setTaskFilter] = useState<TaskFilter>('Open');
   const [nowTick, setNowTick] = useState(0);
-
-  // DAILY OVERDUE BANNER
-  const [showOverdueBanner, setShowOverdueBanner] = useState(false);
-  const tasksPanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const t = setInterval(() => setNowTick((n) => n + 1), 1000);
@@ -119,144 +115,12 @@ export default function Page() {
 
   const clientOptions = useMemo(() => clients.map((c) => ({ id: c.id, name: c.name || '(No name)' })), [clients]);
 
-  // Daily Overdue Banner visibility logic
-  useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const key = `overdueBannerDismissed:${today}`;
-    const dismissed = typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
-    setShowOverdueBanner(!dismissed && tasksOverdue > 0);
-  }, [tasksOverdue]);
-
-  function dismissOverdueBannerForToday() {
-    const today = new Date().toISOString().slice(0, 10);
-    const key = `overdueBannerDismissed:${today}`;
-    try { window.localStorage.setItem(key, '1'); } catch {}
-    setShowOverdueBanner(false);
-  }
-
-  function scrollToTasks() {
-    if (tasksPanelRef.current) {
-      tasksPanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setTaskFilter('Overdue');
-    }
-  }
-
-  // CSV helpers
-  function toCSV(rows: any[], columns: { key: string; label?: string; transform?: (v: any, row?: any) => any }[]) {
-    const header = columns.map(c => `"${(c.label ?? c.key).replace(/"/g,'""')}"`).join(',');
-    const lines = rows.map(r => columns.map(c => {
-      const raw = c.transform ? c.transform(r[c.key], r) : r[c.key];
-      const val = (raw ?? '').toString();
-      return `"${val.replace(/"/g,'""')}"`;
-    }).join(','));
-    return [header, ...lines].join('\n');
-  }
-  function downloadCSV(filename: string, csv: string) {
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click();
-    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
-  }
-
-  async function exportClientsCSV() {
-    const cols = [
-      { key: 'name', label: 'Name' },
-      { key: 'phone', label: 'Phone' },
-      { key: 'email', label: 'Email' },
-      { key: 'created_email', label: 'Created Email' },
-      { key: 'file_type', label: 'File Type' },
-      { key: 'stage', label: 'Stage' },
-      { key: 'assigned_to', label: 'Assigned To' },
-      { key: 'bank', label: 'Bank' },
-      { key: 'banker_name', label: 'Banker Name' },
-      { key: 'banker_email', label: 'Banker Email' },
-      { key: 'lender', label: 'Lender' },
-      { key: 'next_follow_up', label: 'Next Follow Up' },
-      { key: 'last_contact', label: 'Last Contact' },
-      { key: 'subject_removal_date', label: 'Subject Removal Date' },
-      { key: 'closing_date', label: 'Closing Date' },
-      { key: 'retainer_received', label: 'Retainer Received' },
-      { key: 'retainer_amount', label: 'Retainer Amount' },
-      { key: 'is_archived', label: 'Archived' },
-    ];
-    const csv = toCSV(clients, cols);
-    downloadCSV(`clients_${new Date().toISOString().slice(0,10)}.csv`, csv);
-  }
-
-  async function exportTasksCSV() {
-    const mapName: Record<string, string> = {};
-    for (const c of clients) mapName[c.id] = c.name || '';
-    const rows = tasks.map(t => ({
-      ...t,
-      client_name: t.client_id ? (mapName[t.client_id] ?? t.client_id) : '',
-    }));
-    const cols = [
-      { key: 'title', label: 'Title' },
-      { key: 'assigned_to', label: 'Assigned To' },
-      { key: 'status', label: 'Status' },
-      { key: 'due_date', label: 'Due Date' },
-      { key: 'client_name', label: 'Client' },
-      { key: 'client_id', label: 'Client ID' },
-      { key: 'notes', label: 'Notes' },
-      { key: 'id', label: 'Task ID' },
-    ];
-    const csv = toCSV(rows, cols);
-    downloadCSV(`tasks_${new Date().toISOString().slice(0,10)}.csv`, csv);
-  }
-
-  async function exportStageHistoryCSV() {
-    const { data } = await supabase
-      .from('client_stage_history')
-      .select('client_id, from_stage, to_stage, changed_at')
-      .order('changed_at', { ascending: false })
-      .limit(1000);
-    const mapName: Record<string, string> = {};
-    for (const c of clients) mapName[c.id] = c.name || '';
-    const rows = (data ?? []).map((r: any) => ({
-      ...r,
-      client: mapName[r.client_id] ? mapName[r.client_id] : r.client_id,
-      changed_at_local: new Date(r.changed_at).toLocaleString(),
-    }));
-    const cols = [
-      { key: 'client', label: 'Client' },
-      { key: 'from_stage', label: 'From' },
-      { key: 'to_stage', label: 'To' },
-      { key: 'changed_at_local', label: 'Changed At' },
-      { key: 'client_id', label: 'Client ID' },
-    ];
-    const csv = toCSV(rows, cols);
-    downloadCSV(`stage_history_${new Date().toISOString().slice(0,10)}.csv`, csv);
-  }
-
   return (
     <main className="mx-auto max-w-7xl space-y-4 p-4">
-      {/* Daily Overdue Banner (very top) */}
-      {showOverdueBanner && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm flex items-center justify-between">
-          <div>
-            <span className="font-medium">Heads up:</span> You have <span className="font-semibold">{tasksOverdue}</span> overdue task{tasksOverdue===1?'':'s'}.
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={scrollToTasks} className="rounded-md border px-3 py-1 hover:bg-white">View overdue</button>
-            <button onClick={dismissOverdueBannerForToday} className="rounded-md border px-3 py-1 hover:bg-white">Hide for today</button>
-          </div>
-        </div>
-      )}
-
       {/* Top bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {/* Bigger, crisp logo */}
-          <Image
-            src="/insource-logo.png"
-            alt="Insource Mortgage"
-            width={140}
-            height={140}
-            className="h-14 w-auto md:h-16 object-contain"
-            priority
-          />
+          <Image src="/insource-logo.png" alt="Insource" width={36} height={36} />
           <h1 className="text-xl font-semibold">Insource Mortgage Dashboard</h1>
         </div>
         <div className="flex items-center gap-2 text-sm">
@@ -267,18 +131,6 @@ export default function Page() {
           >
             + Add Client
           </button>
-
-          {/* Export menu */}
-          <details className="relative">
-            <summary className="cursor-pointer select-none rounded-md border px-3 py-2 hover:bg-gray-50">
-              Export CSV ▾
-            </summary>
-            <div className="absolute right-0 z-10 mt-2 w-56 rounded-xl border bg-white p-2 shadow-lg">
-              <button onClick={exportClientsCSV} className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-50">Clients CSV</button>
-              <button onClick={exportTasksCSV} className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-50">Tasks CSV</button>
-              <button onClick={exportStageHistoryCSV} className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-50">Stage History CSV</button>
-            </div>
-          </details>
 
           <a href="/analytics" className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
             Analytics
@@ -294,42 +146,6 @@ export default function Page() {
           >
             Logout
           </button>
-        </div>
-      </div>
-
-      {/* ===== TASKS AT THE TOP ===== */}
-      <div ref={tasksPanelRef} className="space-y-2 rounded-2xl border bg-white p-3">
-        <div className="flex items-center justify-between">
-          <div className="font-semibold">Tasks</div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowCreateTask(true)} className="rounded-md border px-3 py-1 text-sm hover:bg-gray-50">+ New Task</button>
-            <select className="rounded-md border px-2 py-1 text-sm" value={taskFilter} onChange={(e) => setTaskFilter(e.target.value as TaskFilter)}>
-              <option>Open</option><option>Overdue</option><option>Today</option><option>Upcoming</option><option>Completed</option><option>All</option>
-            </select>
-          </div>
-        </div>
-        <div className="divide-y">
-          {filteredTasks.map((t) => (
-            <div key={t.id} className="flex items-center justify-between py-2 text-sm">
-              <div>
-                <div className="font-medium">{t.title}</div>
-                <div className="text-xs text-gray-600">
-                  {t.assigned_to ? `Assigned: ${t.assigned_to}` : 'Unassigned'}
-                  {t.client_id ? ` • Client: ${clientOptions.find(o=>o.id===t.client_id)?.name ?? t.client_id}` : ''}
-                  {t.due_date ? ` • Due: ${t.due_date}` : ''}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setOpenTaskId(t.id)} className="rounded-md border px-2 py-1 hover:bg-gray-50">Open</button>
-                {t.status === 'open' ? (
-                  <button onClick={async () => { await supabase.from('tasks').update({ status: 'completed' }).eq('id', t.id); await loadTasks(); }} className="rounded-md border px-2 py-1 hover:bg-gray-50">Mark Completed</button>
-                ) : (
-                  <button onClick={async () => { await supabase.from('tasks').update({ status: 'open' }).eq('id', t.id); await loadTasks(); }} className="rounded-md border px-2 py-1 hover:bg-gray-50">Reopen</button>
-                )}
-              </div>
-            </div>
-          ))}
-          {filteredTasks.length === 0 && <div className="py-6 text-center text-xs text-gray-600">No tasks</div>}
         </div>
       </div>
 
@@ -451,6 +267,42 @@ export default function Page() {
         </div>
       )}
 
+      {/* Tasks Panel */}
+      <div className="space-y-2 rounded-2xl border bg-white p-3">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold">Tasks</div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowCreateTask(true)} className="rounded-md border px-3 py-1 text-sm hover:bg-gray-50">+ New Task</button>
+            <select className="rounded-md border px-2 py-1 text-sm" value={taskFilter} onChange={(e) => setTaskFilter(e.target.value as TaskFilter)}>
+              <option>Open</option><option>Overdue</option><option>Today</option><option>Upcoming</option><option>Completed</option><option>All</option>
+            </select>
+          </div>
+        </div>
+        <div className="divide-y">
+          {filteredTasks.map((t) => (
+            <div key={t.id} className="flex items-center justify-between py-2 text-sm">
+              <div>
+                <div className="font-medium">{t.title}</div>
+                <div className="text-xs text-gray-600">
+                  {t.assigned_to ? `Assigned: ${t.assigned_to}` : 'Unassigned'}
+                  {t.client_id ? ` • Client: ${clientOptions.find(o=>o.id===t.client_id)?.name ?? t.client_id}` : ''}
+                  {t.due_date ? ` • Due: ${t.due_date}` : ''}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setOpenTaskId(t.id)} className="rounded-md border px-2 py-1 hover:bg-gray-50">Open</button>
+                {t.status === 'open' ? (
+                  <button onClick={async () => { await supabase.from('tasks').update({ status: 'completed' }).eq('id', t.id); await loadTasks(); }} className="rounded-md border px-2 py-1 hover:bg-gray-50">Mark Completed</button>
+                ) : (
+                  <button onClick={async () => { await supabase.from('tasks').update({ status: 'open' }).eq('id', t.id); await loadTasks(); }} className="rounded-md border px-2 py-1 hover:bg-gray-50">Reopen</button>
+                )}
+              </div>
+            </div>
+          ))}
+          {filteredTasks.length === 0 && <div className="py-6 text-center text-xs text-gray-600">No tasks</div>}
+        </div>
+      </div>
+
       {/* Modals */}
       {selectedClient && (
         <ClientModal
@@ -494,7 +346,7 @@ export default function Page() {
 
 function KPI({ title, value }: { title: string; value: number | string }) {
   return (
-    <div className="rounded-2xl border bg-white p-4 kpi-card">
+    <div className="rounded-2xl border bg-white p-4">
       <div className="text-xs text-gray-600">{title}</div>
       <div className="text-2xl font-semibold">{value}</div>
     </div>
@@ -502,7 +354,7 @@ function KPI({ title, value }: { title: string; value: number | string }) {
 }
 function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick?: () => void; }) {
   return (
-    <button type="button" onClick={onClick} aria-current={active ? "page" : undefined} className={`rounded-md border px-3 py-2 text-sm ${active ? 'bg-[--brand] text-white font-medium transition-all' : 'bg-white hover:bg-gray-50'}`} style={{ ['--brand' as any]: BRAND }}>
+    <button onClick={onClick} className={`rounded-md border px-3 py-2 text-sm ${active ? 'bg-[--brand] text-white' : 'bg-white hover:bg-gray-50'}`} style={{ ['--brand' as any]: BRAND }}>
       {children}
     </button>
   );
