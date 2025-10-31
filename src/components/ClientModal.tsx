@@ -168,7 +168,6 @@ export default function ClientModal({
           taskId={openTaskId}
           onClose={() => setOpenTaskId(null)}
           onSaved={async () => { setOpenTaskId(null); if (tab==='tasks') await loadTasks(); }}
-          allClients={[]}
         />
       )}
     </div>
