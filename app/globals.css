@@ -3,12 +3,14 @@
 @tailwind utilities;
 
 /* ------- Theme tokens ------- */
-:root{
-  --brand:#0A5BD7;
-  --ink:#0b1324;
-  --muted:#667085;
-  --surface:#ffffff;
-  --ring:rgba(10,91,215,0.35);
+:root {
+  --brand: #0A5BD7;
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --border: rgba(15, 23, 42, 0.12);
+  --text: #0b1324;
+  --muted: #667085;
+  --ring: rgba(10, 91, 215, 0.25);
 }
 
 /* ------- Base typography ------- */
@@ -122,5 +124,10 @@ button.bg-white:hover{
 button[aria-current="page"]{
   background-color: var(--brand) !important;
   color: #fff !important;
-  font-weight: 600;
 }
+  font-weight: 600;
+body {
+  background: linear-gradient(180deg, var(--bg) 0%, #ffffff 65%);
+  color: var(--text);
+}
+
