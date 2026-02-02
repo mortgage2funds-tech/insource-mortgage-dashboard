@@ -46,7 +46,7 @@ export default function TaskEditorModal({
     client_id: '',
     due_date: '',
     status: 'open',
-assigned_to: 'Rajanpreet',
+assigned_to: '',
   });
 
   // Load existing task if editing
@@ -72,6 +72,7 @@ assigned_to: 'Rajanpreet',
           client_id: (data.client_id as string) || '',
           due_date: data.due_date ? String(data.due_date).slice(0, 10) : '',
           status: (data.status as 'open' | 'completed') || 'open',
+          assigned_to: (data.assigned_to as string) || '',
         });
       }
       setLoading(false);
