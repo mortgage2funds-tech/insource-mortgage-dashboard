@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase';
 
 type ClientOption = { id: string; name: string };
@@ -59,40 +59,53 @@ assigned_to: '',
   });
 
   // Load existing task if editing
-  useEffect(() => {
-    if (!taskId) return;
+   React.useEffect(() => {
+  if (!taskId) return;
 
-    const loadTask = async () => {
-      setLoading(true);
-      setError(null);
-      const { data, error } = await supabase
-        .from('tasks')
-        .select('id, title, notes, client_id, due_date, status')
-        .eq('id', taskId)
-        .maybeSingle();
-      const row = data as unknown as TaskRow | null;
-      if (error) {
-        console.error('load task error', error);
-        setError('Failed to load task');
-      const row = data as unknown as TaskRow | null;
+  let cancelled = false;
 
-if (error) {
-  setError('Failed to load task');
-} else if (row) {
-  setForm({
-    title: (row.title as string) || '',
-    notes: (row.notes as string) || '',
-    client_id: (row.client_id as string) || '',
-    due_date: row.due_date ? String(row.due_date).slice(0, 10) : '',
-    status: (row.status as 'open' | 'completed') || 'open',
-    assigned_to: (row.assigned_to as string) || '',
-  });
-}
+  const loadTask = async () => {
+    setLoading(true);
+    setError(null);
+
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('id, title, notes, client_id, due_date, status, assigned_to')
+      .eq('id', taskId)
+      .maybeSingle();
+
+    if (cancelled) return;
+
+    if (error) {
+      console.error('load task error', error);
+      setError('Failed to load task');
       setLoading(false);
-    };
+      return;
+    }
 
-    loadTask();
-  }, [taskId, supabase]);
+    if (data) {
+      const row: any = data;
+
+      setForm((prev) => ({
+        ...prev,
+        title: row.title ?? '',
+        notes: row.notes ?? '',
+        client_id: row.client_id ?? '',
+        due_date: row.due_date ? String(row.due_date).slice(0, 10) : '',
+        status: (row.status as 'open' | 'completed') ?? 'open',
+        assigned_to: row.assigned_to ?? '',
+      }));
+    }
+
+    setLoading(false);
+  };
+
+  loadTask();
+
+  return () => {
+    cancelled = true;
+  };
+}, [taskId, supabase]);
 
   const handleChange = (field: keyof TaskFormState, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
