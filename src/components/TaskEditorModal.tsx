@@ -20,6 +20,15 @@ assigned_to: string;
   due_date: string; // "YYYY-MM-DD"
   status: 'open' | 'completed';
 };
+type TaskRow = {
+  id: any;
+  title: any;
+  notes: any;
+  client_id: any;
+  due_date: any;
+  status: any;
+  assigned_to?: any;
+};
 
 const ASSIGNEE_EMAILS: Record<string, string> = {
   Rajanpreet: 'rajanpreet@theinsource.ca',
@@ -61,20 +70,24 @@ assigned_to: '',
         .select('id, title, notes, client_id, due_date, status')
         .eq('id', taskId)
         .maybeSingle();
-
+      const row = data as unknown as TaskRow | null;
       if (error) {
         console.error('load task error', error);
         setError('Failed to load task');
-      } else if (data) {
-        setForm({
-          title: (data.title as string) || '',
-          notes: (data.notes as string) || '',
-          client_id: (data.client_id as string) || '',
-          due_date: data.due_date ? String(data.due_date).slice(0, 10) : '',
-          status: (data.status as 'open' | 'completed') || 'open',
-          assigned_to: (data.assigned_to as string) || '',
-        });
-      }
+      const row = data as unknown as TaskRow | null;
+
+if (error) {
+  setError('Failed to load task');
+} else if (row) {
+  setForm({
+    title: (row.title as string) || '',
+    notes: (row.notes as string) || '',
+    client_id: (row.client_id as string) || '',
+    due_date: row.due_date ? String(row.due_date).slice(0, 10) : '',
+    status: (row.status as 'open' | 'completed') || 'open',
+    assigned_to: (row.assigned_to as string) || '',
+  });
+}
       setLoading(false);
     };
 
