@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sendTaskCreatedEmail } from '@/lib/email';
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,11 +7,11 @@ export async function POST(req: NextRequest) {
 
     if (!to) {
       console.error('API task-created: missing recipient email');
-      return NextResponse.json(
-        { ok: false, error: 'missing_to' },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: 'missing_to' }, { status: 400 });
     }
+
+    // Import lazily so build-time import doesn't require RESEND_API_KEY
+    const { sendTaskCreatedEmail } = await import('@/lib/email');
 
     await sendTaskCreatedEmail({
       to,
@@ -25,10 +24,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error('task-created API error', err);
-    return NextResponse.json(
-      { ok: false, error: 'internal_error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: 'internal_error' }, { status: 500 });
   }
 }
 
