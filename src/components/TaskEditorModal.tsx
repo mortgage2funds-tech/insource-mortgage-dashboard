@@ -32,8 +32,13 @@ type TaskRow = {
 
 const ASSIGNEE_EMAILS: Record<string, string> = {
   Rajanpreet: 'rajanpreet@theinsource.ca',
-  Champa: 'champa@theinsource.ca',
+  rajanpreet: 'rajanpreet@theinsource.ca',
+
+  Champa: 'mortgage2funds@gmail.com',
+  champa: 'mortgage2funds@gmail.com',
+
   Assistant: 'mortgage2funds@gmail.com',
+  assistant: 'mortgage2funds@gmail.com',
 };
 
 
@@ -110,72 +115,86 @@ assigned_to: '',
   const handleChange = (field: keyof TaskFormState, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
+const handleSave = async () => {
+  setSaving(true);
+  setError(null);
 
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-
+  try {
+      const payload = {
+  title: form.title,
+  notes: form.notes,
+  client_id: form.client_id ? form.client_id : null, // uuid-safe
+  due_date: form.due_date ? form.due_date : null,
+  status: form.status,
+  assigned_to: form.assigned_to ? form.assigned_to : null, // uuid-safe if column is uuid
+};
     const isNew = !taskId;
 
-    try {
-      const payload: any = {
-        title: form.title || null,
-        notes: form.notes || null,
-        client_id: form.client_id || null,
-        due_date: form.due_date || null,
-        status: form.status,
-assigned_to: form.assigned_to || null,
-      };
-console.log('ASSIGNED_TO VALUE:', payload.assigned_to);
-      if (taskId) {
-        const { error } = await supabase.from('tasks').update(payload).eq('id', taskId);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('tasks').insert([payload]);
-        if (error) throw error;
-      }
+    // Save to DB
+    const { error: saveError } = isNew
+      ? await supabase.from('tasks').insert(payload)
+      : await supabase.from('tasks').update(payload).eq('id', taskId);
 
-// Fire-and-forget email for NEW tasks only
-if (isNew) {
-  try {
-    const clientName =
-      allClients.find((c) => c.id === form.client_id)?.name ?? '';
+    if (saveError) throw saveError;
 
-const assignedName = form.assigned_to;
-const to = assignedName ? ASSIGNEE_EMAILS[assignedName] : undefined;
+    // Email notification for NEW tasks only (fire-and-forget)
+    if (isNew) {
+      try {
+        const clientName =
+          allClients.find((c: any) => c.id === form.client_id)?.name ?? '';
 
-console.log('EMAIL: assigned_to =', assignedName, 'to =', to);
+        // 1) Try mapping (assigned person)
+          let to: string | undefined = undefined;
 
-    if (to) {
-      await fetch('/api/task-created', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to,
-          title: form.title,
-          notes: form.notes,
-          clientName,
-          dueDate: form.due_date,
-        }),
-      });
-    } else {
- console.log('EMAIL: no email mapping for assigned_to:', assignedName);
-  }
-  } catch (err) {
-    console.error('task-created email error', err);
-  }
+// Normalize (handles "Champa ", "champa", etc.)
+const assignedRaw = form.assigned_to ?? '';
+const assignedKey = assignedRaw.trim();
+
+// If the select ever stores an email directly, support it
+if (assignedKey.includes('@')) {
+  to = assignedKey;
+} else {
+  // Case-insensitive mapping
+  const byExact = (ASSIGNEE_EMAILS as any)[assignedKey];
+  const byLower = (ASSIGNEE_EMAILS as any)[assignedKey.toLowerCase()];
+  to = byExact || byLower;
 }
 
-      await onSaved();
-      onClose();
-} catch (err: any) {
-  console.error('save task error', err);
-  setError(err?.message || err?.error_description || 'Failed to save task');
-} finally {
-      setSaving(false);
-    }
-  };
+        // 2) Fallback to current logged-in user if unassigned or not mapped
+        if (!to) {
+          const { data } = await supabase.auth.getUser();
+          to = data.user?.email ?? undefined;
+        }
 
+        if (to) {
+          await fetch('/api/task-created', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to,
+              title: form.title,
+              notes: form.notes,
+              clientName,
+              dueDate: form.due_date,
+            }),
+          });
+        } else {
+          console.log('EMAIL: no recipient email found (assigned + fallback missing)');
+        }
+      } catch (e) {
+        console.log('EMAIL: task-created send failed (non-blocking)', e);
+      }
+    }
+
+    await onSaved();
+    onClose();
+  } catch (err: any) {
+    console.error('save task error', err);
+    setError(err?.message || err?.error_description || 'Failed to save task');
+  } finally {
+    setSaving(false);
+  }
+};
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-sm">
@@ -265,8 +284,9 @@ console.log('EMAIL: assigned_to =', assignedName, 'to =', to);
     value={form.assigned_to}
     onChange={(e) => handleChange('assigned_to', e.target.value)}
   >
+    <option value="">(Unassigned)</option>
     <option value="Rajanpreet">Rajanpreet</option>
-    <option value="Assistant">Assitant</option>
+    <option value="Assistant">Assistant</option>
     <option value="Champa">Champa</option>
   </select>
 </div>
