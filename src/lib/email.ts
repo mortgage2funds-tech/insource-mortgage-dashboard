@@ -1,47 +1,59 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-type TaskCreatedEmailPayload = {
+type TaskCreatedEmailArgs = {
   to: string;
-  title: string;
+  title?: string;
   clientName?: string;
   dueDate?: string;
   notes?: string;
 };
 
-export async function sendTaskCreatedEmail(payload: TaskCreatedEmailPayload) {
+export async function sendTaskCreatedEmail({
+  to,
+  title,
+  clientName,
+  dueDate,
+  notes,
+}: TaskCreatedEmailArgs) {
+  const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.TASK_EMAIL_FROM;
 
-  if (!process.env.RESEND_API_KEY || !from) {
-    console.warn('Email config missing; skipping task email.');
-    return;
-  }
+  if (!apiKey) throw new Error('RESEND_API_KEY missing');
+  if (!from) throw new Error('TASK_EMAIL_FROM missing');
+  if (!to) throw new Error('"to" missing');
 
-  const { to, title, clientName, dueDate, notes } = payload;
+  const resend = new Resend(apiKey);
 
-  if (!to) {
-    console.warn('No recipient email; skipping task email.');
-    return;
-  }
+  const subject = `New Task${clientName ? ` — ${clientName}` : ''}${title ? ` — ${title}` : ''}`;
 
-  const subject = `New task: ${title || 'Untitled task'}`;
+  const text = [
+    `A new task was created.`,
+    ``,
+    `Title: ${title || '(No title)'}`,
+    `Client: ${clientName || '(No client)'}`,
+    `Due: ${dueDate || '(No due date)'}`,
+    notes ? `` : undefined,
+    notes ? `Notes: ${notes}` : undefined,
+  ]
+    .filter(Boolean)
+    .join('\n');
 
-  const html = `
-    <div style="font-family: system-ui; font-size:14px;">
-      <h2>New task created</h2>
-      <p><strong>Title:</strong> ${title}</p>
-      ${clientName ? `<p><strong>Client:</strong> ${clientName}</p>` : ''}
-      ${dueDate ? `<p><strong>Due date:</strong> ${dueDate}</p>` : ''}
-      ${notes ? `<p><strong>Notes:</strong><br>${notes.replace(/\n/g, '<br>')}</p>` : ''}
-    </div>
-  `;
-
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from,
     to,
     subject,
-    html,
+    text,
   });
+
+  // Resend returns { data, error }
+  console.log('RESEND raw result:', result);
+
+  if ((result as any)?.error) {
+    throw new Error(`Resend error: ${JSON.stringify((result as any).error)}`);
+  }
+
+  console.log('RESEND sent ok:', { to, id: (result as any)?.data?.id });
+
+  return result;
 }
 
